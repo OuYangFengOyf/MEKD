@@ -28,7 +28,9 @@ def main():
     if ckpt.get("teacher_initialized", False):
         model.init_teacher_from_student()
     model.load_state_dict(ckpt["model"], strict=True)
-    torch.save({"student": model.deployed_student().state_dict(), "config": cfg}, args.output)
+    output = Path(args.output)
+    output.parent.mkdir(parents=True, exist_ok=True)
+    torch.save({"student": model.deployed_student().state_dict(), "config": cfg}, output)
 
 
 if __name__ == "__main__":

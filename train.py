@@ -148,7 +148,7 @@ def initialize_prototypes(model, loader, device, epoch):
 @torch.no_grad()
 def validate(model, loader, cfg, device):
     model.eval()
-    eval_classes = [0, 1, 2, 3, 4] if cfg["dataset"]["name"].lower() == "udd6" else list(range(cfg["dataset"]["num_classes"]))
+    eval_classes = [1, 2, 3, 4, 5] if cfg["dataset"]["name"].lower() == "udd6" else list(range(cfg["dataset"]["num_classes"]))
     metric = SegMetric(cfg["dataset"]["num_classes"], cfg["dataset"]["ignore_index"], eval_classes)
     for batch in tqdm(loader, desc="val", leave=False):
         images = batch["image"].to(device, non_blocking=True)

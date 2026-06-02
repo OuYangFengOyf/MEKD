@@ -34,12 +34,14 @@ class SegTransform:
         scale_range=(0.5, 2.0),
         hflip_prob: float = 0.5,
         color_jitter: float = 0.2,
+        ignore_index: int = 255,
     ):
         self.image_size = tuple(image_size)
         self.train = train
         self.scale_range = scale_range
         self.hflip_prob = hflip_prob
         self.color_jitter = color_jitter
+        self.ignore_index = int(ignore_index)
 
     def __call__(self, image, mask) -> Dict[str, torch.Tensor]:
         if self.train:
@@ -54,7 +56,7 @@ class SegTransform:
                 image_t = pil_to_tensor(image).unsqueeze(0)
                 mask_t = torch.as_tensor(list(mask.getdata()), dtype=torch.long).view(mask.height, mask.width)
                 image_t = F.pad(image_t, (0, pad_w, 0, pad_h), value=0)
-                mask_t = F.pad(mask_t, (0, pad_w, 0, pad_h), value=255)
+                mask_t = F.pad(mask_t, (0, pad_w, 0, pad_h), value=self.ignore_index)
                 image = tensor_to_pil(image_t.squeeze(0))
                 mask = tensor_to_mask_pil(mask_t)
 

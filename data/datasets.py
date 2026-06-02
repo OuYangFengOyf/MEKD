@@ -22,7 +22,75 @@ UAVID_CLASSES = [
     "clutter",
 ]
 
-UDD6_CLASSES = ["facade", "road", "vegetation", "vehicle", "roof", "other"]
+UDD6_CLASSES = ["other", "facade", "road", "vegetation", "vehicle", "roof"]
+
+
+IMG_EXTS = {".jpg", ".jpeg", ".png", ".tif", ".tiff", ".bmp"}
+
+
+def image_files(folder: Path) -> Iterable[Path]:
+    for path in folder.rglob("*"):
+        if path.is_file() and path.suffix.lower() in IMG_EXTS:
+            yield path
+
+
+def match_label(image_path: Path, label_dir: Path) -> Optional[Path]:
+    stems = [
+        image_path.stem,
+        image_path.stem.replace("_leftImg8bit", "_gtFine_labelIds"),
+        image_path.stem.replace("_img", "_label"),
+    ]
+    for stem in stems:
+        for ext in [".png", ".bmp", ".tif", ".tiff", ".jpg"]:
+            candidate = label_dir / f"{stem}{ext}"
+            if candidate.exists():
+                return candidate
+    matches = sorted(label_dir.rglob(f"{image_path.stem}.*"))
+    return matches[0] if matches else None
+
+
+def split_root_with_aliases(root: Path, split: str) -> Path:
+    split_root = root / split
+    if split_root.exists():
+        return split_root
+    aliases = {
+        "train": ["uavid_train", "training"],
+        "val": ["uavid_val", "validation"],
+        "test": ["uavid_test", "testing"],
+    }
+    for alias in aliases.get(split, []):
+        candidate = root / alias
+        if candidate.exists():
+            return candidate
+    return split_root
+
+
+def discover_uavseg_samples(root: str | Path, split: str) -> List[Tuple[Path, Path]]:
+    split_root = split_root_with_aliases(Path(root), split)
+    pairs: List[Tuple[Path, Path]] = []
+    image_names = {"images", "image", "imgs", "img"}
+    label_names = {"labels", "label", "masks", "mask", "gt", "ann"}
+    image_dirs = [p for p in split_root.rglob("*") if p.is_dir() and p.name.lower() in image_names]
+    label_dirs = {p.parent: p for p in split_root.rglob("*") if p.is_dir() and p.name.lower() in label_names}
+
+    for image_dir in image_dirs:
+        label_dir = label_dirs.get(image_dir.parent)
+        if label_dir is None:
+            continue
+        for image_path in sorted(image_files(image_dir)):
+            label_path = match_label(image_path, label_dir)
+            if label_path is not None:
+                pairs.append((image_path, label_path))
+
+    if not pairs:
+        image_dir = next((split_root / n for n in ["images", "Images", "img"] if (split_root / n).exists()), None)
+        label_dir = next((split_root / n for n in ["labels", "Labels", "masks", "Masks", "gt"] if (split_root / n).exists()), None)
+        if image_dir and label_dir:
+            for image_path in sorted(image_files(image_dir)):
+                label_path = match_label(image_path, label_dir)
+                if label_path is not None:
+                    pairs.append((image_path, label_path))
+    return pairs
 
 
 class UAVSegDataset(Dataset):
@@ -33,8 +101,6 @@ class UAVSegDataset(Dataset):
     (split/images and split/labels). Labels can be grayscale ids or RGB masks
     converted by a user-provided palette.
     """
-
-    IMG_EXTS = {".jpg", ".jpeg", ".png", ".tif", ".tiff", ".bmp"}
 
     def __init__(
         self,
@@ -56,8 +122,8 @@ class UAVSegDataset(Dataset):
         self.ignore_index = ignore_index
         self.label_mode = label_mode
         self.palette = _parse_palette(palette)
-        self.transform = SegTransform(self.image_size, train=train)
-        self.samples = self._discover_samples()
+        self.transform = SegTransform(self.image_size, train=train, ignore_index=ignore_index)
+        self.samples = discover_uavseg_samples(self.root, self.split)
         if not self.samples:
             raise FileNotFoundError(
                 f"No image/label pairs found for split '{split}' under {self.root}. "
@@ -69,62 +135,6 @@ class UAVSegDataset(Dataset):
         if self.dataset_name == "udd6":
             return UDD6_CLASSES
         return UAVID_CLASSES
-
-    def _discover_samples(self) -> List[Tuple[Path, Path]]:
-        split_root = self.root / self.split
-        if not split_root.exists():
-            aliases = {
-                "train": ["uavid_train", "training"],
-                "val": ["uavid_val", "validation"],
-                "test": ["uavid_test", "testing"],
-            }
-            for alias in aliases.get(self.split, []):
-                candidate = self.root / alias
-                if candidate.exists():
-                    split_root = candidate
-                    break
-
-        pairs: List[Tuple[Path, Path]] = []
-        image_dirs = [p for p in split_root.rglob("*") if p.is_dir() and p.name.lower() in {"images", "image", "imgs", "img"}]
-        label_dirs = {p.parent: p for p in split_root.rglob("*") if p.is_dir() and p.name.lower() in {"labels", "label", "masks", "mask", "gt", "ann"}}
-
-        for image_dir in image_dirs:
-            label_dir = label_dirs.get(image_dir.parent)
-            if label_dir is None:
-                continue
-            for image_path in sorted(self._image_files(image_dir)):
-                label_path = self._match_label(image_path, label_dir)
-                if label_path is not None:
-                    pairs.append((image_path, label_path))
-
-        if not pairs:
-            image_dir = next((split_root / n for n in ["images", "Images", "img"] if (split_root / n).exists()), None)
-            label_dir = next((split_root / n for n in ["labels", "Labels", "masks", "Masks", "gt"] if (split_root / n).exists()), None)
-            if image_dir and label_dir:
-                for image_path in sorted(self._image_files(image_dir)):
-                    label_path = self._match_label(image_path, label_dir)
-                    if label_path is not None:
-                        pairs.append((image_path, label_path))
-        return pairs
-
-    def _image_files(self, folder: Path) -> Iterable[Path]:
-        for path in folder.rglob("*"):
-            if path.is_file() and path.suffix.lower() in self.IMG_EXTS:
-                yield path
-
-    def _match_label(self, image_path: Path, label_dir: Path) -> Optional[Path]:
-        stems = [
-            image_path.stem,
-            image_path.stem.replace("_leftImg8bit", "_gtFine_labelIds"),
-            image_path.stem.replace("_img", "_label"),
-        ]
-        for stem in stems:
-            for ext in [".png", ".bmp", ".tif", ".tiff", ".jpg"]:
-                candidate = label_dir / f"{stem}{ext}"
-                if candidate.exists():
-                    return candidate
-        matches = list(label_dir.rglob(f"{image_path.stem}.*"))
-        return matches[0] if matches else None
 
     def __len__(self) -> int:
         return len(self.samples)
