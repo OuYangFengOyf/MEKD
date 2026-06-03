@@ -1,15 +1,17 @@
 seed: 42
 device: cuda
+
 dataset:
-  name: udd6
-  root: data/UDD6
+  name: custom_uav
+  root: data/custom_uav
   train_split: train
   val_split: val
   image_size: [512, 1024]
   num_classes: 6
   ignore_index: 255
   label_mode: auto
-  small_object_quantile: 0.3
+  # For RGB label masks, provide color-to-class-id mappings.
+  # Grayscale class-id masks do not need this field.
   palette:
     "0,0,0": 0
     "102,102,156": 1
@@ -17,6 +19,8 @@ dataset:
     "107,142,35": 3
     "0,0,142": 4
     "70,70,70": 5
+  small_object_quantile: 0.3
+
 train:
   epochs: 160
   warmup_epochs: 40
@@ -26,4 +30,4 @@ train:
   num_workers: 4
   lr: 0.0004
   weight_decay: 0.01
-  save_dir: runs/mekd_udd6
+  save_dir: runs/mekd_custom

@@ -1,12 +1,9 @@
 from __future__ import annotations
 
-from typing import Optional
-
 import torch
-from torch import nn
 import torch.nn.functional as F
 
-from .priors import one_hot, sobel_edge
+from priors import one_hot, sobel_edge
 
 
 def class_balanced_weights(freq: torch.Tensor, mu: float) -> torch.Tensor:

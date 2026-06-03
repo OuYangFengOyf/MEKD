@@ -48,6 +48,9 @@ DEFAULT_CONFIG: Dict[str, Any] = {
         "distill_ramp_epochs": 5,
         "save_dir": "runs/mekd_uavid",
         "amp": True,
+        "deterministic": False,
+        "drop_last": True,
+        "pin_memory": True,
     },
     "loss": {
         "lambda_dice": 0.5,

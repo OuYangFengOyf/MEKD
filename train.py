@@ -3,22 +3,7 @@ from __future__ import annotations
 import argparse
 import json
 import math
-import random
-import sys
 from pathlib import Path
-
-import torch
-from torch.cuda.amp import GradScaler, autocast
-from tqdm import tqdm
-
-if __package__ in {None, ""}:
-    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-
-from mekd.config import load_config
-from mekd.data import build_loaders
-from mekd.losses import class_balanced_weights
-from mekd.metrics import SegMetric
-from mekd.models import MEKDUAVSeg
 
 
 def parse_args():
@@ -28,17 +13,36 @@ def parse_args():
     return parser.parse_args()
 
 
-def seed_everything(seed: int):
-    random.seed(seed)
-    torch.manual_seed(seed)
-    torch.cuda.manual_seed_all(seed)
+def _load_runtime():
+    global torch, GradScaler, autocast, tqdm
+    global load_config, build_loaders, class_balanced_weights, SegMetric, MEKDUAVSeg, set_seed
+
+    import torch
+    from torch.cuda.amp import GradScaler, autocast
+    from tqdm import tqdm
+
+    from config import load_config
+    from data import build_loaders
+    from losses import class_balanced_weights
+    from metrics import SegMetric
+    from models import MEKDUAVSeg
+    from utils import set_seed
+
+
+def resolve_device(cfg):
+    requested = str(cfg.get("device", "cuda"))
+    if requested.startswith("cuda") and not torch.cuda.is_available():
+        return torch.device("cpu")
+    return torch.device(requested)
 
 
 def main():
     args = parse_args()
+    _load_runtime()
+
     cfg = load_config(args.config)
-    seed_everything(int(cfg["seed"]))
-    device = torch.device(cfg["device"] if torch.cuda.is_available() else "cpu")
+    set_seed(int(cfg["seed"]), deterministic=bool(cfg["train"].get("deterministic", False)))
+    device = resolve_device(cfg)
     save_dir = Path(cfg["train"]["save_dir"])
     save_dir.mkdir(parents=True, exist_ok=True)
 
@@ -56,7 +60,10 @@ def main():
     best_miou = -1.0
     ckpt = None
     if args.resume:
-        ckpt = torch.load(args.resume, map_location="cpu")
+        resume = Path(args.resume)
+        if not resume.exists():
+            raise FileNotFoundError(f"Resume checkpoint not found: {resume}")
+        ckpt = torch.load(resume, map_location="cpu")
         if ckpt.get("teacher_initialized", False):
             model.init_teacher_from_student()
         model.load_state_dict(ckpt["model"], strict=True)
@@ -135,25 +142,25 @@ def train_one_epoch(model, loader, optimizer, scheduler, scaler, cfg, device, ep
         pbar.set_postfix(loss=float(loss.detach().cpu()))
 
 
-@torch.no_grad()
 def initialize_prototypes(model, loader, device, epoch):
     model.eval()
-    for batch in tqdm(loader, desc="init prototypes", leave=False):
-        images = batch["image"].to(device, non_blocking=True)
-        labels = batch["mask"].to(device, non_blocking=True)
-        out = model(images, labels, stage="warmup", epoch_in_stage=epoch, global_epoch=epoch)
-        model.update_prototypes(out["t_feat"], labels)
+    with torch.no_grad():
+        for batch in tqdm(loader, desc="init prototypes", leave=False):
+            images = batch["image"].to(device, non_blocking=True)
+            labels = batch["mask"].to(device, non_blocking=True)
+            out = model(images, labels, stage="warmup", epoch_in_stage=epoch, global_epoch=epoch)
+            model.update_prototypes(out["t_feat"], labels)
 
 
-@torch.no_grad()
 def validate(model, loader, cfg, device):
     model.eval()
     eval_classes = [1, 2, 3, 4, 5] if cfg["dataset"]["name"].lower() == "udd6" else list(range(cfg["dataset"]["num_classes"]))
     metric = SegMetric(cfg["dataset"]["num_classes"], cfg["dataset"]["ignore_index"], eval_classes)
-    for batch in tqdm(loader, desc="val", leave=False):
-        images = batch["image"].to(device, non_blocking=True)
-        labels = batch["mask"].to(device, non_blocking=True)
-        metric.update(model.predict(images), labels)
+    with torch.no_grad():
+        for batch in tqdm(loader, desc="val", leave=False):
+            images = batch["image"].to(device, non_blocking=True)
+            labels = batch["mask"].to(device, non_blocking=True)
+            metric.update(model.predict(images), labels)
     return metric.compute()
 
 

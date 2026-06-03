@@ -150,10 +150,21 @@ class UAVSegDataset(Dataset):
     def _read_label(self, path: Path):
         label = Image.open(path)
         if self.label_mode == "rgb" or (self.label_mode == "auto" and label.mode in {"RGB", "RGBA"}):
-            if not self.palette:
-                return label.convert("L")
             rgb = label.convert("RGB")
             data = torch.ByteTensor(torch.ByteStorage.from_buffer(rgb.tobytes())).view(rgb.height, rgb.width, 3)
+            if not self.palette:
+                channels_equal = (data[..., 0] == data[..., 1]).all() and (data[..., 0] == data[..., 2]).all()
+                gray = data[..., 0]
+                values = torch.unique(gray)
+                valid_values = ((values < self.num_classes) | (values == self.ignore_index)).all()
+                if channels_equal and bool(valid_values):
+                    from PIL import Image as PILImage
+
+                    return PILImage.fromarray(gray.numpy())
+                raise ValueError(
+                    f"RGB label mask requires a palette: {path}. "
+                    "Provide dataset.palette in the YAML config, or convert labels to grayscale class IDs."
+                )
             mask = torch.full((rgb.height, rgb.width), self.ignore_index, dtype=torch.uint8)
             for color, cls_id in self.palette.items():
                 color_t = torch.tensor(color, dtype=torch.uint8)

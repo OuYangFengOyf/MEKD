@@ -7,14 +7,14 @@ import torch
 from torch import nn
 import torch.nn.functional as F
 
-from ..losses import (
+from losses import (
     balanced_bce,
     boundary_distill_loss,
     logit_kd_loss,
     prototype_loss,
     segmentation_loss,
 )
-from ..priors import density_target, hard_region_mask
+from priors import density_target, hard_region_mask
 from .experts import MambaSpatialExpert, TransformerSemanticExpert
 from .layers import ConvBNAct
 from .stdc import STDCEncoder

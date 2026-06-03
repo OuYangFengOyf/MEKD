@@ -3,14 +3,8 @@ from __future__ import annotations
 import argparse
 import json
 import platform
-import sys
 from datetime import datetime, timezone
 from pathlib import Path
-
-if __package__ in {None, ""}:
-    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-
-from mekd.validate import evaluate_checkpoint
 
 
 def parse_args():
@@ -24,11 +18,13 @@ def parse_args():
 
 def main():
     args = parse_args()
+    from validate import evaluate_checkpoint
+
     metrics, cfg = evaluate_checkpoint(args.config, args.checkpoint)
     payload = {
         "run_name": args.run_name or Path(args.checkpoint).stem,
         "created_utc": datetime.now(timezone.utc).isoformat(),
-        "code_entrypoint": "python -m mekd.benchmark",
+        "code_entrypoint": "python benchmark.py",
         "config": str(args.config),
         "checkpoint": str(args.checkpoint),
         "dataset": {
